@@ -21,6 +21,10 @@ st.set_page_config(
 if "added_tickers" not in st.session_state:
     st.session_state["added_tickers"] = []
 
+# View mode: 'dashboard' or 'headlines'
+if "view_mode" not in st.session_state:
+    st.session_state["view_mode"] = "dashboard"
+
 # =================================================
 # ENHANCED POPULAR WATCHLIST (Asia Focus)
 # =================================================
@@ -132,66 +136,91 @@ else:
     st.sidebar.info("💡 No stocks selected yet. Choose from popular stocks above or search for any company!")
 
 # =================================================
-# SIDEBAR: MARKET HEADLINES
-# =================================================
-st.sidebar.divider()
-st.sidebar.subheader("📰 Market Headlines")
-st.sidebar.caption("Latest market news")
-
-try:
-    headlines = get_market_headlines_cached()
-    
-    if headlines:
-        # Quick stats
-        hk_count = len([h for h in headlines if "Hong Kong" in h['region']])
-        cn_count = len([h for h in headlines if "China" in h['region']])
-        global_count = len([h for h in headlines if "Global" in h['region']])
-        
-        col1, col2, col3 = st.sidebar.columns(3)
-        col1.metric("🇭🇰", hk_count)
-        col2.metric("🇨🇳", cn_count)
-        col3.metric("🌍", global_count)
-        
-        # Region filter
-        headline_filter = st.sidebar.radio(
-            "Filter:",
-            ["All", "HK", "CN", "Global"],
-            horizontal=True,
-            key="headline_filter"
-        )
-        
-        # Map short names to full region names
-        region_map = {
-            "All": "All",
-            "HK": "Hong Kong Market",
-            "CN": "China Market",
-            "Global": "Global Market"
-        }
-        
-        filtered_headlines = headlines if headline_filter == "All" else [
-            h for h in headlines if region_map[headline_filter] in h['region']
-        ]
-        
-        # Show headlines in sidebar
-        for idx, headline in enumerate(filtered_headlines[:10]):
-            with st.sidebar.expander(f"{headline['title'][:50]}...", expanded=(idx < 2)):
-                st.caption(f"📰 {headline['source']}")
-                st.caption(f"🕐 {headline['published'].strftime('%m-%d %H:%M')}")
-                st.markdown(f"[Read more →]({headline['link']})")
-        
-        if len(filtered_headlines) > 10:
-            st.sidebar.caption(f"+ {len(filtered_headlines) - 10} more headlines")
-    else:
-        st.sidebar.info("No headlines available")
-        
-except Exception as e:
-    st.sidebar.error(f"Error loading headlines: {str(e)}")
-
-# =================================================
 # MAIN DASHBOARD
 # =================================================
 st.title("🌏 Asia-Pacific Market Intelligence Dashboard")
 st.caption("Real-time data for Hong Kong, China, and Global Markets")
+
+# =================================================
+# HEADLINES VIEW MODE
+# =================================================
+if st.session_state["view_mode"] == "headlines":
+    st.subheader("📰 Market Headlines")
+    st.caption("Latest news from Hong Kong, China, and Global Markets (Updates every 15 minutes)")
+    
+    with st.spinner("Loading market headlines..."):
+        headlines = get_market_headlines_cached()
+    
+    if headlines:
+        # Show headline stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📊 Total Articles", len(headlines))
+        with col2:
+            hk_count = len([h for h in headlines if "Hong Kong" in h['region']])
+            st.metric("🇭🇰 Hong Kong", hk_count)
+        with col3:
+            cn_count = len([h for h in headlines if "China" in h['region']])
+            st.metric("🇨🇳 China", cn_count)
+        with col4:
+            global_count = len([h for h in headlines if "Global" in h['region']])
+            st.metric("🌍 Global", global_count)
+        
+        st.divider()
+        
+        # Filter options for headlines
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            headline_filter = st.radio(
+                "Filter by region:",
+                ["All", "Hong Kong Market", "China Market", "Global Market"],
+                horizontal=True,
+                key="headline_filter_main"
+            )
+        with col2:
+            show_count = st.selectbox("Show articles:", [10, 20, 30, 50], index=1)
+        
+        filtered_headlines = headlines if headline_filter == "All" else [h for h in headlines if headline_filter in h['region']]
+        
+        st.divider()
+        
+        # Display headlines in a nice grid format
+        for idx, headline in enumerate(filtered_headlines[:show_count]):
+            with st.container():
+                col1, col2 = st.columns([5, 1])
+                
+                with col1:
+                    st.markdown(f"### [{headline['title']}]({headline['link']})")
+                    
+                    # Metadata
+                    meta_col1, meta_col2, meta_col3 = st.columns(3)
+                    meta_col1.caption(f"📰 **Source:** {headline['source']}")
+                    meta_col2.caption(f"🌍 **Region:** {headline['region']}")
+                    meta_col3.caption(f"🕐 **Time:** {headline['published'].strftime('%Y-%m-%d %H:%M')}")
+                    
+                    # Summary if available
+                    if headline.get('summary'):
+                        st.markdown(f"*{headline['summary']}*")
+                
+                with col2:
+                    # Badge number
+                    st.markdown(f"<div style='text-align: center; font-size: 24px; color: #666;'>#{idx + 1}</div>", unsafe_allow_html=True)
+                
+                st.divider()
+        
+        # Show total
+        if len(filtered_headlines) > show_count:
+            st.info(f"📊 Showing {show_count} of {len(filtered_headlines)} headlines. Increase the count to see more.")
+    
+    else:
+        st.warning("⚠️ No headlines available at the moment. Please check back later.")
+    
+    # Stop here - don't show dashboard
+    st.stop()
+
+# =================================================
+# DASHBOARD VIEW MODE (Default)
+# =================================================
 
 if not final_tickers:
     st.info("👈 **Select stocks from the sidebar to begin tracking**")
