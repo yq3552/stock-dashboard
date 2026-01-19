@@ -7,7 +7,11 @@ import re
 import pandas as pd
 
 # --- Import the news engine ---
-from news_engine import get_all_news_cached, get_ticker_news, get_market_headlines_cached
+from news_engine import (
+    get_all_news_cached, 
+    get_ticker_news, 
+    get_market_headlines_cached
+)
 
 # =================================================
 # PAGE CONFIG & SESSION STATE
@@ -21,12 +25,11 @@ st.set_page_config(
 if "added_tickers" not in st.session_state:
     st.session_state["added_tickers"] = []
 
-# View mode: 'dashboard' or 'headlines'
 if "view_mode" not in st.session_state:
     st.session_state["view_mode"] = "dashboard"
 
 # =================================================
-# ENHANCED POPULAR WATCHLIST (Asia Focus)
+# POPULAR WATCHLIST & MAPPING
 # =================================================
 popular_watchlist = {
     # Hong Kong Blue Chips
@@ -63,7 +66,22 @@ def get_display_name(ticker):
 # SIDEBAR: SEARCH & CONTROLS
 # =================================================
 st.sidebar.header("🔍 Market Search")
-st.sidebar.caption("Search stocks from HK, China, US, and global markets")
+
+# View mode toggle buttons
+st.sidebar.divider()
+col1, col2 = st.sidebar.columns(2)
+
+with col1:
+    if st.button("📊 Dashboard", use_container_width=True, type="primary" if st.session_state["view_mode"] == "dashboard" else "secondary"):
+        st.session_state["view_mode"] = "dashboard"
+        st.rerun()
+
+with col2:
+    if st.button("📰 Headlines", use_container_width=True, type="primary" if st.session_state["view_mode"] == "headlines" else "secondary"):
+        st.session_state["view_mode"] = "headlines"
+        st.rerun()
+
+st.sidebar.divider()
 
 search_query = st.sidebar.text_input(
     "Search Company or Ticker", 
@@ -101,7 +119,7 @@ st.sidebar.subheader("⭐ Popular Stocks")
 popular_selection = st.sidebar.multiselect(
     "Quick add popular stocks:",
     options=list(popular_watchlist.keys()),
-    default=[],  # No defaults - clean start!
+    default=[],
     format_func=lambda x: popular_watchlist.get(x, x)
 )
 
@@ -145,6 +163,34 @@ st.caption("Real-time data for Hong Kong, China, and Global Markets")
 # HEADLINES VIEW MODE
 # =================================================
 if st.session_state["view_mode"] == "headlines":
+    # Custom CSS for professional headlines
+    st.markdown("""
+    <style>
+    .headline-container {
+        padding: 1rem;
+        border-left: 3px solid #1f77b4;
+        margin-bottom: 1rem;
+        background-color: rgba(28, 131, 225, 0.05);
+    }
+    .headline-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+    }
+    .headline-meta {
+        font-size: 0.85rem;
+        color: #666;
+    }
+    .headline-summary {
+        font-size: 0.9rem;
+        color: #333;
+        margin-top: 0.5rem;
+        font-style: italic;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.subheader("📰 Market Headlines")
     st.caption("Latest news from Hong Kong, China, and Global Markets (Updates every 15 minutes)")
     
@@ -184,29 +230,22 @@ if st.session_state["view_mode"] == "headlines":
         
         st.divider()
         
-        # Display headlines in a nice grid format
+        # Display headlines in a professional, compact format
         for idx, headline in enumerate(filtered_headlines[:show_count]):
-            with st.container():
-                col1, col2 = st.columns([5, 1])
-                
-                with col1:
-                    st.markdown(f"### [{headline['title']}]({headline['link']})")
-                    
-                    # Metadata
-                    meta_col1, meta_col2, meta_col3 = st.columns(3)
-                    meta_col1.caption(f"📰 **Source:** {headline['source']}")
-                    meta_col2.caption(f"🌍 **Region:** {headline['region']}")
-                    meta_col3.caption(f"🕐 **Time:** {headline['published'].strftime('%Y-%m-%d %H:%M')}")
-                    
-                    # Summary if available
-                    if headline.get('summary'):
-                        st.markdown(f"*{headline['summary']}*")
-                
-                with col2:
-                    # Badge number
-                    st.markdown(f"<div style='text-align: center; font-size: 24px; color: #666;'>#{idx + 1}</div>", unsafe_allow_html=True)
-                
-                st.divider()
+            # Professional card layout
+            st.markdown(f"""
+            <div class="headline-container">
+                <div class="headline-title">
+                    <a href="{headline['link']}" target="_blank" style="text-decoration: none; color: inherit;">
+                        #{idx + 1} • {headline['title']}
+                    </a>
+                </div>
+                <div class="headline-meta">
+                    📰 {headline['source']} &nbsp;•&nbsp; 🌍 {headline['region']} &nbsp;•&nbsp; 🕐 {headline['published'].strftime('%Y-%m-%d %H:%M')}
+                </div>
+                {f'<div class="headline-summary">{headline.get("summary", "")}</div>' if headline.get('summary') else ''}
+            </div>
+            """, unsafe_allow_html=True)
         
         # Show total
         if len(filtered_headlines) > show_count:
