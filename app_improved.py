@@ -7,11 +7,7 @@ import re
 import pandas as pd
 
 # --- Import the news engine ---
-from news_engine import (
-    get_all_news_cached, 
-    get_ticker_news, 
-    get_market_headlines_cached
-)
+from news_engine import get_all_news_cached, get_ticker_news, get_market_headlines_cached
 
 # =================================================
 # PAGE CONFIG & SESSION STATE
@@ -25,11 +21,12 @@ st.set_page_config(
 if "added_tickers" not in st.session_state:
     st.session_state["added_tickers"] = []
 
+# View mode: 'dashboard' or 'headlines'
 if "view_mode" not in st.session_state:
     st.session_state["view_mode"] = "dashboard"
 
 # =================================================
-# POPULAR WATCHLIST & MAPPING
+# ENHANCED POPULAR WATCHLIST (Asia Focus)
 # =================================================
 popular_watchlist = {
     # Hong Kong Blue Chips
@@ -88,38 +85,12 @@ search_query = st.sidebar.text_input(
     placeholder="e.g. 腾讯, HSBC, 0700, NVDA"
 )
 
-if search_query:
-    try:
-        search = yf.Search(search_query, max_results=8)
-        if search.quotes:
-            search_options = {
-                f"{q.get('shortname', 'Unknown')} ({q['symbol']})": q['symbol'] 
-                for q in search.quotes
-            }
-            selected_from_search = st.sidebar.selectbox(
-                "Select from results:", 
-                options=list(search_options.keys())
-            )
-            
-            if st.sidebar.button("➕ Add to Dashboard"):
-                ticker_to_add = search_options[selected_from_search]
-                if ticker_to_add not in st.session_state["added_tickers"]:
-                    st.session_state["added_tickers"].append(ticker_to_add)
-                    st.success(f"Added {ticker_to_add}!")
-                    st.rerun()
-        else:
-            st.sidebar.warning("No matches found. Try different keywords.")
-    except Exception as e:
-        st.sidebar.error(f"Search error: {str(e)}")
-
-st.sidebar.divider()
-
 # Popular stocks selection
 st.sidebar.subheader("⭐ Popular Stocks")
 popular_selection = st.sidebar.multiselect(
     "Quick add popular stocks:",
     options=list(popular_watchlist.keys()),
-    default=[],
+    default=[],  # No defaults - clean start!
     format_func=lambda x: popular_watchlist.get(x, x)
 )
 
@@ -212,10 +183,42 @@ if st.session_state["view_mode"] == "headlines":
             global_count = len([h for h in headlines if "Global" in h['region']])
             st.metric("🌍 Global", global_count)
         
+        # Industry breakdown
+        st.markdown("### 🏭 Industry Breakdown")
+        
+        # Count articles per industry
+        industry_counts = {}
+        for h in headlines:
+            for ind in h.get('industries', ['General']):
+                industry_counts[ind] = industry_counts.get(ind, 0) + 1
+        
+        # Display industry stats in columns
+        industries = sorted(industry_counts.items(), key=lambda x: x[1], reverse=True)
+        
+        # Show top industries in a nice grid
+        ind_cols = st.columns(min(len(industries), 5))
+        for idx, (industry, count) in enumerate(industries[:5]):
+            with ind_cols[idx]:
+                # Industry emoji mapping
+                industry_emoji = {
+                    "Tech": "💻",
+                    "Finance": "🏦",
+                    "Healthcare": "🏥",
+                    "Energy": "⚡",
+                    "Consumer": "🛒",
+                    "Real Estate": "🏢",
+                    "Manufacturing": "🏭",
+                    "Telecom": "📡",
+                    "General": "📰"
+                }
+                emoji = industry_emoji.get(industry, "📰")
+                st.metric(f"{emoji} {industry}", count)
+        
         st.divider()
         
         # Filter options for headlines
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
         with col1:
             headline_filter = st.radio(
                 "Filter by region:",
@@ -223,15 +226,45 @@ if st.session_state["view_mode"] == "headlines":
                 horizontal=True,
                 key="headline_filter_main"
             )
-        with col2:
-            show_count = st.selectbox("Show articles:", [10, 20, 30, 50], index=1)
         
-        filtered_headlines = headlines if headline_filter == "All" else [h for h in headlines if headline_filter in h['region']]
+        with col2:
+            # Get all unique industries from headlines
+            all_industries = set()
+            for h in headlines:
+                all_industries.update(h.get('industries', ['General']))
+            
+            industry_filter = st.multiselect(
+                "Filter by industry:",
+                options=sorted(list(all_industries)),
+                default=list(all_industries),
+                key="industry_filter_main"
+            )
+        
+        with col3:
+            show_count = st.selectbox("Show:", [10, 20, 30, 50], index=1)
+        
+        # Apply filters
+        filtered_headlines = headlines
+        
+        # Region filter
+        if headline_filter != "All":
+            filtered_headlines = [h for h in filtered_headlines if headline_filter in h['region']]
+        
+        # Industry filter
+        if industry_filter:
+            filtered_headlines = [
+                h for h in filtered_headlines 
+                if any(ind in industry_filter for ind in h.get('industries', ['General']))
+            ]
         
         st.divider()
         
         # Display headlines in a professional, compact format
         for idx, headline in enumerate(filtered_headlines[:show_count]):
+            # Get industries for this headline
+            industries = headline.get('industries', ['General'])
+            industry_tags = " ".join([f"🏷️ {ind}" for ind in industries[:2]])  # Show max 2 tags
+            
             # Professional card layout
             st.markdown(f"""
             <div class="headline-container">
@@ -241,7 +274,7 @@ if st.session_state["view_mode"] == "headlines":
                     </a>
                 </div>
                 <div class="headline-meta">
-                    📰 {headline['source']} &nbsp;•&nbsp; 🌍 {headline['region']} &nbsp;•&nbsp; 🕐 {headline['published'].strftime('%Y-%m-%d %H:%M')}
+                    📰 {headline['source']} &nbsp;•&nbsp; 🌍 {headline['region']} &nbsp;•&nbsp; 🕐 {headline['published'].strftime('%Y-%m-%d %H:%M')} &nbsp;•&nbsp; {industry_tags}
                 </div>
                 {f'<div class="headline-summary">{headline.get("summary", "")}</div>' if headline.get('summary') else ''}
             </div>
@@ -508,68 +541,167 @@ else:
 # PART 4: STOCK ANALYSIS SUMMARY
 # =================================================
 st.divider()
-st.subheader("📊 Individual Stock Analysis")
+st.subheader("📊 AI-Powered Stock Analysis")
 
 for ticker in final_tickers:
-    with st.expander(f"📈 {get_display_name(ticker)}", expanded=False):
-        col1, col2 = st.columns([2, 1])
+    with st.expander(f"🤖 AI Analysis: {get_display_name(ticker)}", expanded=False):
+        
+        # Get stock-specific news for sentiment
+        ticker_news = get_ticker_news(ticker, news_items)
+        
+        # Three columns for AI features
+        col1, col2, col3 = st.columns(3)
+        
+        # AI Feature 1: Price Forecast
+        with col1:
+            st.markdown("### 🔮 AI Forecast")
+            forecast = ai_price_forecast(ticker, days=7)
+            
+            if forecast:
+                st.metric(
+                    label="7-Day Prediction",
+                    value=f"${forecast['predicted_price']:.2f}",
+                    delta=f"{forecast['change_pct']:+.2f}%"
+                )
+                st.progress(min(forecast['confidence'] / 100, 1.0))
+                st.caption(f"Confidence: {forecast['confidence']:.1f}%")
+                st.markdown(f"**Trend:** {forecast['emoji']} {forecast['trend']}")
+            else:
+                st.info("Not enough data for forecast")
+        
+        # AI Feature 2: News Sentiment
+        with col2:
+            st.markdown("### 📰 Sentiment")
+            sentiment = analyze_news_sentiment(ticker_news) if ticker_news else None
+            
+            if sentiment and sentiment['total_analyzed'] > 0:
+                st.metric(
+                    label="News Mood",
+                    value=f"{sentiment['emoji']} {sentiment['mood']}"
+                )
+                
+                # Sentiment breakdown
+                st.write(f"**Positive:** {sentiment['positive_pct']:.0f}%")
+                st.write(f"**Negative:** {sentiment['negative_pct']:.0f}%")
+                st.write(f"**Neutral:** {sentiment['neutral_pct']:.0f}%")
+                st.caption(f"Analyzed {sentiment['total_analyzed']} articles")
+            else:
+                st.info("No news to analyze")
+        
+        # AI Feature 3: Trading Signals
+        with col3:
+            st.markdown("### 🎯 AI Signal")
+            signals = generate_trading_signals(ticker)
+            
+            if signals:
+                st.metric(
+                    label="Recommendation",
+                    value=f"{signals['emoji']} {signals['recommendation']}"
+                )
+                st.progress(min(signals['confidence'] / 100, 1.0))
+                st.caption(f"Confidence: {signals['confidence']:.0f}%")
+                
+                # Key indicator
+                st.write(f"**RSI:** {signals['rsi']:.1f}")
+                
+                if signals['rsi'] < 30:
+                    st.success("Oversold - potential buy")
+                elif signals['rsi'] > 70:
+                    st.warning("Overbought - potential sell")
+            else:
+                st.info("Not enough data for signals")
+        
+        # AI Summary (full width)
+        st.divider()
+        
+        if forecast or sentiment or signals:
+            summary = generate_ai_summary(ticker, forecast, sentiment, signals)
+            
+            # Overall AI verdict
+            col1, col2, col3 = st.columns([2, 2, 1])
+            
+            with col1:
+                st.markdown(f"### 🤖 AI Verdict: {summary['overall_sentiment']}")
+            
+            with col2:
+                score_color = "green" if summary['overall_score'] > 30 else "red" if summary['overall_score'] < -30 else "gray"
+                st.markdown(f"**Overall Score:** {summary['overall_score']:.0f}/100")
+                st.progress((summary['overall_score'] + 100) / 200)  # Normalize to 0-1
+            
+            with col3:
+                st.markdown(f"**Risk:** {summary['risk_level']}")
+            
+            # Key points
+            if summary['key_points']:
+                st.markdown("**📌 Key Insights:**")
+                for point in summary['key_points']:
+                    st.write(f"• {point}")
+        
+        # Technical details expander
+        if signals:
+            with st.expander("📈 Technical Indicators Details"):
+                ind_col1, ind_col2, ind_col3 = st.columns(3)
+                
+                with ind_col1:
+                    st.metric("RSI", f"{signals['indicators']['RSI']:.2f}")
+                    st.metric("Current Price", f"${signals['indicators']['Price']:.2f}")
+                
+                with ind_col2:
+                    st.metric("SMA (20)", f"${signals['indicators']['SMA_20']:.2f}")
+                    st.metric("SMA (50)", f"${signals['indicators']['SMA_50']:.2f}")
+                
+                with ind_col3:
+                    st.metric("MACD", f"{signals['indicators']['MACD']:.2f}")
+                    st.metric("Signal Line", f"{signals['indicators']['Signal']:.2f}")
+                
+                st.markdown("**Signal Breakdown:**")
+                for signal in signals['signals']:
+                    st.write(f"• {signal}")
+
+        st.divider()
+        
+        # Filter options for headlines - FIXED INDENTATION
+        col1, col2, col3 = st.columns([2, 2, 1])
         
         with col1:
-            # Price trend
-            df = yf.download(ticker, period="60d", progress=False)
-            if not df.empty and "Close" in df.columns:
-                close = df["Close"]
-                if isinstance(close, pd.DataFrame):
-                    close = close.iloc[:, 0]
-                close = close.dropna()
-                
-                if len(close) >= 2:
-                    start_price = float(close.iloc[0])
-                    end_price = float(close.iloc[-1])
-                    pct_change = (end_price - start_price) / start_price * 100
-                    
-                    trend_emoji = "📈" if pct_change > 0 else "📉" if pct_change < 0 else "➡️"
-                    trend_text = "Upward" if pct_change > 0 else "Downward" if pct_change < 0 else "Flat"
-                    
-                    st.write(f"{trend_emoji} **60-Day Trend:** {trend_text} ({pct_change:+.2f}%)")
-                    
-                    # Simple mini chart
-                    mini_fig = go.Figure()
-                    mini_fig.add_trace(go.Scatter(
-                        x=close.index,
-                        y=close.values,
-                        fill='tozeroy',
-                        line=dict(color='cyan', width=2)
-                    ))
-                    mini_fig.update_layout(
-                        template="plotly_dark",
-                        height=200,
-                        margin=dict(l=0, r=0, t=0, b=0),
-                        showlegend=False,
-                        xaxis=dict(showgrid=False),
-                        yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)')
-                    )
-                    st.plotly_chart(mini_fig, use_container_width=True)
+            headline_filter = st.radio(
+                "Filter by region:",
+                ["All", "Hong Kong Market", "China Market", "Global Market"],
+                horizontal=True,
+                key="headline_filter_main"
+            )
         
         with col2:
-            # Company info
-            try:
-                info = yf.Ticker(ticker).info
-                st.write("**Company Info:**")
-                st.caption(f"Sector: {info.get('sector', 'N/A')}")
-                st.caption(f"Industry: {info.get('industry', 'N/A')}")
-                st.caption(f"Market Cap: {info.get('marketCap', 'N/A')}")
-            except:
-                st.caption("Company info unavailable")
+            # Get all unique industries from headlines
+            all_industries = set()
+            for h in headlines:
+                all_industries.update(h.get('industries', ['General']))
+            
+            industry_filter = st.multiselect(
+                "Filter by industry:",
+                options=sorted(list(all_industries)),
+                default=list(all_industries),
+                key="industry_filter_main"
+            )
         
-        # Related news
-        ticker_news = get_ticker_news(ticker, news_items)
-        if ticker_news:
-            st.write("**📰 Recent Headlines:**")
-            for article in ticker_news[:3]:
-                st.markdown(f"- [{article['title']}]({article['link']}) *({article['source']})*")
-        else:
-            st.caption("No recent news available")
+        with col3:
+            show_count = st.selectbox("Show:", [10, 20, 30, 50], index=1)
+        
+        # Apply filters
+        filtered_headlines = headlines
+        
+        # Region filter
+        if headline_filter != "All":
+            filtered_headlines = [h for h in filtered_headlines if headline_filter in h['region']]
+        
+        # Industry filter
+        if industry_filter:
+            filtered_headlines = [
+                h for h in filtered_headlines 
+                if any(ind in industry_filter for ind in h.get('industries', ['General']))
+            ]
+        
+        st.divider()
 
 # =================================================
 # FOOTER & DISCLAIMER
