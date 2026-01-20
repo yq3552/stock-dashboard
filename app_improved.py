@@ -84,6 +84,31 @@ search_query = st.sidebar.text_input(
     "Search Company or Ticker", 
     placeholder="e.g. 腾讯, HSBC, 0700, NVDA"
 )
+if search_query:
+    try:
+        search = yf.Search(search_query, max_results=8)
+        if search.quotes:
+            search_options = {
+                f"{q.get('shortname', 'Unknown')} ({q['symbol']})": q['symbol'] 
+                for q in search.quotes
+            }
+            selected_from_search = st.sidebar.selectbox(
+                "Select from results:", 
+                options=list(search_options.keys())
+            )
+            
+            if st.sidebar.button("➕ Add to Dashboard"):
+                ticker_to_add = search_options[selected_from_search]
+                if ticker_to_add not in st.session_state["added_tickers"]:
+                    st.session_state["added_tickers"].append(ticker_to_add)
+                    st.success(f"Added {ticker_to_add}!")
+                    st.rerun()
+        else:
+            st.sidebar.warning("No matches found. Try different keywords.")
+    except Exception as e:
+        st.sidebar.error(f"Search error: {str(e)}")
+
+st.sidebar.divider()
 
 # Popular stocks selection
 st.sidebar.subheader("⭐ Popular Stocks")
@@ -536,172 +561,6 @@ else:
             if article["keywords"]:
                 st.write("**Keywords:**", ", ".join(article["keywords"]))
             st.markdown(f"[📖 Read full article]({article['link']})")
-
-# =================================================
-# PART 4: STOCK ANALYSIS SUMMARY
-# =================================================
-st.divider()
-st.subheader("📊 AI-Powered Stock Analysis")
-
-for ticker in final_tickers:
-    with st.expander(f"🤖 AI Analysis: {get_display_name(ticker)}", expanded=False):
-        
-        # Get stock-specific news for sentiment
-        ticker_news = get_ticker_news(ticker, news_items)
-        
-        # Three columns for AI features
-        col1, col2, col3 = st.columns(3)
-        
-        # AI Feature 1: Price Forecast
-        with col1:
-            st.markdown("### 🔮 AI Forecast")
-            forecast = ai_price_forecast(ticker, days=7)
-            
-            if forecast:
-                st.metric(
-                    label="7-Day Prediction",
-                    value=f"${forecast['predicted_price']:.2f}",
-                    delta=f"{forecast['change_pct']:+.2f}%"
-                )
-                st.progress(min(forecast['confidence'] / 100, 1.0))
-                st.caption(f"Confidence: {forecast['confidence']:.1f}%")
-                st.markdown(f"**Trend:** {forecast['emoji']} {forecast['trend']}")
-            else:
-                st.info("Not enough data for forecast")
-        
-        # AI Feature 2: News Sentiment
-        with col2:
-            st.markdown("### 📰 Sentiment")
-            sentiment = analyze_news_sentiment(ticker_news) if ticker_news else None
-            
-            if sentiment and sentiment['total_analyzed'] > 0:
-                st.metric(
-                    label="News Mood",
-                    value=f"{sentiment['emoji']} {sentiment['mood']}"
-                )
-                
-                # Sentiment breakdown
-                st.write(f"**Positive:** {sentiment['positive_pct']:.0f}%")
-                st.write(f"**Negative:** {sentiment['negative_pct']:.0f}%")
-                st.write(f"**Neutral:** {sentiment['neutral_pct']:.0f}%")
-                st.caption(f"Analyzed {sentiment['total_analyzed']} articles")
-            else:
-                st.info("No news to analyze")
-        
-        # AI Feature 3: Trading Signals
-        with col3:
-            st.markdown("### 🎯 AI Signal")
-            signals = generate_trading_signals(ticker)
-            
-            if signals:
-                st.metric(
-                    label="Recommendation",
-                    value=f"{signals['emoji']} {signals['recommendation']}"
-                )
-                st.progress(min(signals['confidence'] / 100, 1.0))
-                st.caption(f"Confidence: {signals['confidence']:.0f}%")
-                
-                # Key indicator
-                st.write(f"**RSI:** {signals['rsi']:.1f}")
-                
-                if signals['rsi'] < 30:
-                    st.success("Oversold - potential buy")
-                elif signals['rsi'] > 70:
-                    st.warning("Overbought - potential sell")
-            else:
-                st.info("Not enough data for signals")
-        
-        # AI Summary (full width)
-        st.divider()
-        
-        if forecast or sentiment or signals:
-            summary = generate_ai_summary(ticker, forecast, sentiment, signals)
-            
-            # Overall AI verdict
-            col1, col2, col3 = st.columns([2, 2, 1])
-            
-            with col1:
-                st.markdown(f"### 🤖 AI Verdict: {summary['overall_sentiment']}")
-            
-            with col2:
-                score_color = "green" if summary['overall_score'] > 30 else "red" if summary['overall_score'] < -30 else "gray"
-                st.markdown(f"**Overall Score:** {summary['overall_score']:.0f}/100")
-                st.progress((summary['overall_score'] + 100) / 200)  # Normalize to 0-1
-            
-            with col3:
-                st.markdown(f"**Risk:** {summary['risk_level']}")
-            
-            # Key points
-            if summary['key_points']:
-                st.markdown("**📌 Key Insights:**")
-                for point in summary['key_points']:
-                    st.write(f"• {point}")
-        
-        # Technical details expander
-        if signals:
-            with st.expander("📈 Technical Indicators Details"):
-                ind_col1, ind_col2, ind_col3 = st.columns(3)
-                
-                with ind_col1:
-                    st.metric("RSI", f"{signals['indicators']['RSI']:.2f}")
-                    st.metric("Current Price", f"${signals['indicators']['Price']:.2f}")
-                
-                with ind_col2:
-                    st.metric("SMA (20)", f"${signals['indicators']['SMA_20']:.2f}")
-                    st.metric("SMA (50)", f"${signals['indicators']['SMA_50']:.2f}")
-                
-                with ind_col3:
-                    st.metric("MACD", f"{signals['indicators']['MACD']:.2f}")
-                    st.metric("Signal Line", f"{signals['indicators']['Signal']:.2f}")
-                
-                st.markdown("**Signal Breakdown:**")
-                for signal in signals['signals']:
-                    st.write(f"• {signal}")
-
-        st.divider()
-        
-        # Filter options for headlines - FIXED INDENTATION
-        col1, col2, col3 = st.columns([2, 2, 1])
-        
-        with col1:
-            headline_filter = st.radio(
-                "Filter by region:",
-                ["All", "Hong Kong Market", "China Market", "Global Market"],
-                horizontal=True,
-                key="headline_filter_main"
-            )
-        
-        with col2:
-            # Get all unique industries from headlines
-            all_industries = set()
-            for h in headlines:
-                all_industries.update(h.get('industries', ['General']))
-            
-            industry_filter = st.multiselect(
-                "Filter by industry:",
-                options=sorted(list(all_industries)),
-                default=list(all_industries),
-                key="industry_filter_main"
-            )
-        
-        with col3:
-            show_count = st.selectbox("Show:", [10, 20, 30, 50], index=1)
-        
-        # Apply filters
-        filtered_headlines = headlines
-        
-        # Region filter
-        if headline_filter != "All":
-            filtered_headlines = [h for h in filtered_headlines if headline_filter in h['region']]
-        
-        # Industry filter
-        if industry_filter:
-            filtered_headlines = [
-                h for h in filtered_headlines 
-                if any(ind in industry_filter for ind in h.get('industries', ['General']))
-            ]
-        
-        st.divider()
 
 # =================================================
 # FOOTER & DISCLAIMER
